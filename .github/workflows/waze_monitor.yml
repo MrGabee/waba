@@ -14,7 +14,7 @@ concurrency:
 jobs:
   figyel:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 6
     permissions:
       contents: write
 
@@ -24,20 +24,16 @@ jobs:
         with:
           token: ${{ secrets.PAT_TOKEN }}
 
-      - name: 🐍 Python beállítása
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: 📦 Függőségek telepítése
-        run: pip install requests
+      - name: 🌐 Playwright + Chrome telepítése
+        run: |
+          pip install playwright requests
+          playwright install chromium --with-deps
 
       - name: 🚨 Monitor futtatása
         env:
           EMAIL_KULDO:   ${{ secrets.EMAIL_KULDO }}
           EMAIL_JELSZO:  ${{ secrets.EMAIL_JELSZO }}
           EMAIL_CIMZETT: ${{ secrets.EMAIL_CIMZETT }}
-          WAZE_TOKEN:    ${{ secrets.WAZE_TOKEN }}
         run: python waze_monitor.py
 
       - name: 💾 Állapot mentése
@@ -54,6 +50,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 
       - name: 🔁 Önindítás 1 perc múlva
+        if: always()
         run: |
           sleep 55
           curl -s -X POST \

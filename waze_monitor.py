@@ -1,7 +1,6 @@
 """
-🚨 Waze Baleset Monitor – Budapest régió
-GitHub Actions self-loop, percenként fut
-Token refresh: külön workflow 10 percenként
+🚨 Waze Baleset Monitor
+Playwright-tal kinyeri a tokent, majd lekérdezi a Waze-t
 """
 
 import os
@@ -11,34 +10,18 @@ import requests
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.header import Header
+from playwright.sync_api import sync_playwright
 
-# ─────────────────────────────────────────────
-# KONFIGURÁCIÓ
-# ─────────────────────────────────────────────
 EMAIL_KULDO   = os.environ["EMAIL_KULDO"]
 EMAIL_JELSZO  = os.environ["EMAIL_JELSZO"]
 EMAIL_CIMZETT = os.environ["EMAIL_CIMZETT"]
-# Token betöltése fájlból vagy environment változóból
-def load_token():
-    if os.path.exists("waze_token.txt"):
-        with open("waze_token.txt", "r") as f:
-            t = f.read().strip()
-            if t:
-                return t
-    return os.environ.get("WAZE_TOKEN", "")
-
-WAZE_TOKEN = load_token()
 
 REGION_TOP    = 47.78
 REGION_BOTTOM = 47.22
 REGION_LEFT   = 18.68
 REGION_RIGHT  = 19.41
-
 ALLAPOT_FILE  = "waze_allapot.json"
 
-# ─────────────────────────────────────────────
-# ÁLLAPOT KEZELÉS
-# ─────────────────────────────────────────────
 def load_allapot():
     if os.path.exists(ALLAPOT_FILE):
         try:
@@ -52,20 +35,42 @@ def save_allapot(allapot):
     with open(ALLAPOT_FILE, "w") as f:
         json.dump(allapot, f, indent=2)
 
-# ─────────────────────────────────────────────
-# WAZE LEKÉRDEZÉS
-# ─────────────────────────────────────────────
-def fetch_waze():
-    if not WAZE_TOKEN:
-        print("[HIBA] WAZE_TOKEN hiányzik!")
-        return []
+def get_token():
+    print("Token kinyerése Playwright-tal...")
+    token = None
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
 
+        captured = []
+        def handle_request(request):
+            if "georss" in request.url:
+                t = request.headers.get("x-recaptcha-token", "")
+                if t:
+                    captured.append(t)
+
+        page.on("request", handle_request)
+        page.goto("https://www.waze.com/hu/live-map", wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(5000)
+
+        if captured:
+            token = captured[-1]
+            print("Token megvan: " + token[:30] + "...")
+        else:
+            print("Token nem található!")
+
+        browser.close()
+    return token
+
+def fetch_waze(token):
     url = (
         "https://www.waze.com/live-map/api/georss"
         "?top=%.5f&bottom=%.5f&left=%.5f&right=%.5f&env=row&types=alerts,traffic"
         % (REGION_TOP, REGION_BOTTOM, REGION_LEFT, REGION_RIGHT)
     )
-
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
         "Referer": "https://www.waze.com/hu/live-map",
@@ -73,16 +78,15 @@ def fetch_waze():
         "sec-ch-ua-platform": '"Windows"',
         "sec-ch-ua": '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
         "sec-ch-ua-mobile": "?0",
-        "X-Recaptcha-Token": WAZE_TOKEN,
+        "X-Recaptcha-Token": token,
     }
-
     try:
         r = requests.get(url, headers=headers, timeout=15)
         print("[WAZE] Status: %d" % r.status_code)
         if r.status_code == 200:
             data = r.json()
             alerts = data.get("alerts", [])
-            print("[WAZE] Alertek száma: %d" % len(alerts))
+            print("[WAZE] Alertek: %d" % len(alerts))
             return alerts
         else:
             print("[WAZE] Hiba: %d" % r.status_code)
@@ -91,9 +95,6 @@ def fetch_waze():
         print("[WAZE] Kivétel: %s" % str(e))
         return []
 
-# ─────────────────────────────────────────────
-# EMAIL KÜLDÉS
-# ─────────────────────────────────────────────
 def send_email(alert):
     city    = alert.get("city", "") or "Budapest"
     street  = alert.get("street", "") or "Ismeretlen út"
@@ -102,13 +103,11 @@ def send_email(alert):
     loc     = alert.get("location", {})
     lat     = loc.get("y", 0)
     lon     = loc.get("x", 0)
-
-    gmaps = "https://www.google.com/maps/search/?api=1&query=%.5f,%.5f" % (lat, lon)
-    waze  = "https://www.waze.com/ul?ll=%.5f,%.5f&navigate=yes" % (lat, lon)
-    ts    = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    gmaps   = "https://www.google.com/maps/search/?api=1&query=%.5f,%.5f" % (lat, lon)
+    waze    = "https://www.waze.com/ul?ll=%.5f,%.5f&navigate=yes" % (lat, lon)
+    ts      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     subject = "BALESET [WAZE]: %s, %s" % (city, street)
-
     body = (
         "<div style='font-family:sans-serif;line-height:1.6;max-width:640px;'>"
         "<h2 style='color:#d93025;'>🚨 Baleseti Riasztás – WAZE</h2>"
@@ -140,38 +139,34 @@ def send_email(alert):
         print("  [EMAIL HIBA] %s" % str(e))
         return False
 
-# ─────────────────────────────────────────────
-# FŐ LOGIKA
-# ─────────────────────────────────────────────
 def main():
     print("=" * 50)
     print("WAZE MONITOR – %s" % datetime.now().strftime("%H:%M:%S"))
     print("=" * 50)
 
+    token = get_token()
+    if not token:
+        print("[HIBA] Token kinyerése sikertelen!")
+        return
+
     allapot = load_allapot()
     seen    = set(allapot.get("seen", []))
-
-    alerts = fetch_waze()
-    uj     = 0
+    alerts  = fetch_waze(token)
+    uj      = 0
 
     for a in alerts:
-        atype = a.get("type", "")
-        if atype != "ACCIDENT":
+        if a.get("type") != "ACCIDENT":
             continue
-
         aid = a.get("uuid") or a.get("id") or ""
         if not aid or aid in seen:
             continue
-
         print("ÚJ BALESET: %s, %s" % (a.get("city", "?"), a.get("street", "?")))
         send_email(a)
         seen.add(aid)
         uj += 1
 
-    # Max 500 ID tárolása
     allapot["seen"] = list(seen)[-500:]
     save_allapot(allapot)
-
     print("Összesen: %d alert, %d új baleset" % (len(alerts), uj))
 
 if __name__ == "__main__":

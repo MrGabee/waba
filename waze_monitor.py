@@ -18,7 +18,16 @@ from email.header import Header
 EMAIL_KULDO   = os.environ["EMAIL_KULDO"]
 EMAIL_JELSZO  = os.environ["EMAIL_JELSZO"]
 EMAIL_CIMZETT = os.environ["EMAIL_CIMZETT"]
-WAZE_TOKEN    = os.environ.get("WAZE_TOKEN", "")
+# Token betöltése fájlból vagy environment változóból
+def load_token():
+    if os.path.exists("waze_token.txt"):
+        with open("waze_token.txt", "r") as f:
+            t = f.read().strip()
+            if t:
+                return t
+    return os.environ.get("WAZE_TOKEN", "")
+
+WAZE_TOKEN = load_token()
 
 REGION_TOP    = 47.78
 REGION_BOTTOM = 47.22

@@ -1,0 +1,9 @@
+name: IP Check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check IP
+        run: curl -s http://ip-api.com/json

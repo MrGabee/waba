@@ -3,7 +3,7 @@ name: Waze Token Generator
 on:
   schedule:
     - cron: '*/2 * * * *' # Minden 2. percben lefut automatikusan
-  workflow_dispatch: # Engedélyezi a kézi indítást a GitHub felületéről is
+  workflow_dispatch: # Kézi indítás lehetősége
 
 jobs:
   generate-token:

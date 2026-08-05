@@ -1,0 +1,55 @@
+name: Waze Extension Alert
+
+on:
+  repository_dispatch:
+    types: [waze_alert]
+
+jobs:
+  send_email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Email küldése
+        env:
+          EMAIL_KULDO: ${{ secrets.EMAIL_KULDO }}
+          EMAIL_JELSZO: ${{ secrets.EMAIL_JELSZO }}
+          EMAIL_CIMZETT: ${{ secrets.EMAIL_CIMZETT }}
+          STREET: ${{ github.event.client_payload.street }}
+          CITY: ${{ github.event.client_payload.city }}
+          ALERT_TYPE: ${{ github.event.client_payload.alert_type }}
+          RELIABILITY: ${{ github.event.client_payload.reliability }}
+        run: |
+          python3 - << 'EOF'
+          import os
+          import smtplib
+          from email.mime.text import MIMEText
+          from email.header import Header
+
+          kuldo   = os.environ["EMAIL_KULDO"]
+          jelszo  = os.environ["EMAIL_JELSZO"]
+          cimzett = os.environ["EMAIL_CIMZETT"]
+
+          utca   = os.environ.get("STREET", "ismeretlen helyszín")
+          varos  = os.environ.get("CITY", "")
+          tipus  = os.environ.get("ALERT_TYPE", "")
+          megbiz = os.environ.get("RELIABILITY", "")
+
+          targy = "Waze baleset: " + utca
+          szoveg = (
+              "Helyszín: " + utca + "\n"
+              "Város: " + varos + "\n"
+              "Típus: " + tipus + "\n"
+              "Megbízhatóság: " + megbiz + "\n"
+          )
+
+          msg = MIMEText(szoveg, "plain", "utf-8")
+          msg["Subject"] = Header(targy, "utf-8")
+          msg["From"] = kuldo
+          msg["To"] = cimzett
+
+          with smtplib.SMTP("smtp.gmail.com", 587) as server:
+              server.starttls()
+              server.login(kuldo, jelszo)
+              server.sendmail(kuldo, [cimzett], msg.as_string())
+
+          print("Email elkuldve: " + targy)
+          EOF

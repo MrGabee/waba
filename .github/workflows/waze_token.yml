@@ -2,14 +2,11 @@ name: Waze Token Generator
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Fut minden 6. órában automatikusan
-  workflow_dispatch: # Engedélyezi a kézi indítást a GitHub felületén is
+    - cron: '*/2 * * * *' # Minden 2. percben lefut automatikusan
+  workflow_dispatch: # Engedélyezi a kézi indítást a GitHub felületéről is
 
 jobs:
   generate-token:
-  # Fontos: Ha a GitHub Actions környezetében letiltja a Waze a datacenter IP-címek miatt, 
-  # akkor ezt a folyamatot a Raspberry Pi-n kell futtatni, de ha a GitHubon futtatod, 
-  # ez az alap beállítás:
     runs-on: ubuntu-latest
     permissions:
       contents: write

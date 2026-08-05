@@ -1,1 +1,1 @@
-ide_kerul_a_token
+waze_token_pelda_ertek_12345

@@ -1,0 +1,147 @@
+name: Waze Token Region Query
+
+on:
+  repository_dispatch:
+    types: [waze_token]
+
+permissions:
+  contents: write
+
+jobs:
+  query_regions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Régiók lekérdezése a friss tokennel
+        env:
+          TOKEN: ${{ github.event.client_payload.token }}
+          EMAIL_KULDO: ${{ secrets.EMAIL_KULDO }}
+          EMAIL_JELSZO: ${{ secrets.EMAIL_JELSZO }}
+          EMAIL_CIMZETT: ${{ secrets.EMAIL_CIMZETT }}
+        run: |
+          python3 - << 'EOF'
+          import os
+          import json
+          import smtplib
+          import requests
+          from email.mime.text import MIMEText
+          from email.header import Header
+
+          TOKEN = os.environ["TOKEN"]
+
+          # Extra regiok, amiket a lathato terkepen tul is figyelunk.
+          # Bovitheto: (top, bottom, left, right)
+          REGIONS = [
+              {"name": "Agglomeracio-eszak", "top": 47.78, "bottom": 47.55, "left": 18.90, "right": 19.30},
+              {"name": "Agglomeracio-del",   "top": 47.35, "bottom": 47.22, "left": 18.90, "right": 19.30},
+              {"name": "Agglomeracio-nyugat","top": 47.55, "bottom": 47.35, "left": 18.68, "right": 18.90},
+              {"name": "Agglomeracio-kelet", "top": 47.55, "bottom": 47.35, "left": 19.30, "right": 19.41},
+          ]
+
+          HEADERS = {
+              "accept": "application/json, text/plain, */*",
+              "accept-language": "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
+              "referer": "https://www.waze.com/hu/live-map",
+              "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+              "sec-ch-ua": '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
+              "sec-ch-ua-mobile": "?0",
+              "sec-ch-ua-platform": '"Windows"',
+              "sec-fetch-dest": "empty",
+              "sec-fetch-mode": "cors",
+              "sec-fetch-site": "same-origin",
+              "x-recaptcha-token": TOKEN,
+          }
+
+          SEEN_FILE = "waze_token_seen.json"
+          if os.path.exists(SEEN_FILE):
+              with open(SEEN_FILE) as f:
+                  seen = set(json.load(f))
+          else:
+              seen = set()
+
+          def kuld_email(alert):
+              kuldo   = os.environ["EMAIL_KULDO"]
+              jelszo  = os.environ["EMAIL_JELSZO"]
+              cimzett = os.environ["EMAIL_CIMZETT"]
+
+              utca = alert.get("street") or alert.get("city") or "ismeretlen helyszín"
+              targy = "Waze baleset (regio): " + utca
+              szoveg = (
+                  "Helyszín: " + utca + "\n"
+                  "Város: " + str(alert.get("city", "")) + "\n"
+                  "Típus: " + str(alert.get("type", "")) + "\n"
+                  "Megbízhatóság: " + str(alert.get("reliability", "")) + "\n"
+              )
+
+              msg = MIMEText(szoveg, "plain", "utf-8")
+              msg["Subject"] = Header(targy, "utf-8")
+              msg["From"] = kuldo
+              msg["To"] = cimzett
+
+              with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                  server.starttls()
+                  server.login(kuldo, jelszo)
+                  server.sendmail(kuldo, [cimzett], msg.as_string())
+
+              print("Email elkuldve: " + targy)
+
+          uj_balesetek = 0
+
+          for region in REGIONS:
+              params = {
+                  "top": region["top"],
+                  "bottom": region["bottom"],
+                  "left": region["left"],
+                  "right": region["right"],
+                  "env": "row",
+                  "types": "alerts,traffic",
+              }
+              try:
+                  r = requests.get(
+                      "https://www.waze.com/live-map/api/georss",
+                      params=params,
+                      headers=HEADERS,
+                      timeout=15,
+                  )
+                  print(region["name"] + " status: " + str(r.status_code))
+
+                  if r.status_code != 200:
+                      print("  Hiba: " + r.text[:200])
+                      continue
+
+                  data = r.json()
+                  alerts = data.get("alerts", [])
+                  print("  Alertek: " + str(len(alerts)))
+
+                  for alert in alerts:
+                      aid = alert.get("uuid") or alert.get("id")
+                      if not aid or aid in seen:
+                          continue
+                      seen.add(aid)
+
+                      if alert.get("type") == "ACCIDENT":
+                          uj_balesetek += 1
+                          kuld_email(alert)
+
+              except Exception as e:
+                  print(region["name"] + " HIBA: " + str(e))
+
+          print("Osszesen " + str(uj_balesetek) + " uj baleset.")
+
+          # Tulcsordulas elleni vedelem
+          if len(seen) > 20000:
+              seen = set(list(seen)[-10000:])
+
+          with open(SEEN_FILE, "w") as f:
+              json.dump(list(seen), f)
+          EOF
+
+      - name: Állapot mentése
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add waze_token_seen.json
+          git diff --staged --quiet || git commit -m "Waze token seen frissítve"
+          git push

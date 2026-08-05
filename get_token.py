@@ -1,10 +1,17 @@
 import time
 
-# Ide tedd be a Waze token lekérdező logikádat (pl. Selenium / kérések)
-token_ertek = "ide_kerul_a_token"
+def generate_waze_token():
+    # IDE jön a te Waze / Selenium / Playwright logikád, ami megszerzi a tokent
+    # Példa helyettesítő:
+    friss_token = "waze_token_pelda_ertek_12345"
+    
+    return friss_token
 
-# Elmentjük a waze_token.txt fájlba, hogy a GitHub Actions fel tudja dolgozni
-with open("waze_token.txt", "w") as f:
-    f.write(token_ertek)
-
-print("Token sikeresen elmentve!")
+if __name__ == "__main__":
+    token = generate_waze_token()
+    
+    # Elmentjük a fájlba, amit a GitHub Actions automatikusan visszaküld a repóba
+    with open("waze_token.txt", "w") as f:
+        f.f.write(token) if hasattr(f, 'f') else f.write(token)
+        
+    print("Token sikeresen elmentve!")

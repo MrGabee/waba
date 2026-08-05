@@ -1,0 +1,38 @@
+name: Waze Token Generator
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Fut minden 6. órában automatikusan
+  workflow_dispatch: # Engedélyezi a kézi indítást a GitHub felületén is
+
+jobs:
+  generate-token:
+  # Fontos: Ha a GitHub Actions környezetében letiltja a Waze a datacenter IP-címek miatt, 
+  # akkor ezt a folyamatot a Raspberry Pi-n kell futtatni, de ha a GitHubon futtatod, 
+  # ez az alap beállítás:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests selenium webdriver-manager
+
+      - name: Run token script
+        run: python get_token.py
+
+      - name: Commit and push token if changed
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add waze_token.txt
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto: Friss Waze token" && git push)
